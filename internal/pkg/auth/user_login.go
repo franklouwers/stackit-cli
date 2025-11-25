@@ -50,7 +50,7 @@ type apiClient interface {
 }
 
 // AuthorizeUser implements the PKCE OAuth2 flow.
-func AuthorizeUser(p *print.Printer, isReauthentication bool) error {
+func AuthorizeUser(p *print.Printer, context StorageContext, isReauthentication bool) error {
 	idpWellKnownConfigURL, err := getIDPWellKnownConfigURL()
 	if err != nil {
 		return fmt.Errorf("get IDP well-known configuration: %w", err)
@@ -65,7 +65,7 @@ func AuthorizeUser(p *print.Printer, isReauthentication bool) error {
 
 	p.Debug(print.DebugLevel, "get IDP well-known configuration from %s", idpWellKnownConfigURL)
 	httpClient := &http.Client{}
-	idpWellKnownConfig, err := parseWellKnownConfiguration(httpClient, idpWellKnownConfigURL)
+	idpWellKnownConfig, err := parseWellKnownConfiguration(httpClient, idpWellKnownConfigURL, context)
 	if err != nil {
 		return fmt.Errorf("parse IDP well-known configuration: %w", err)
 	}
@@ -181,7 +181,7 @@ func AuthorizeUser(p *print.Printer, isReauthentication bool) error {
 			p.Debug(print.DebugLevel, "session expires at %s", sessionExpiresAt)
 		}
 
-		err = SetAuthFlow(AUTH_FLOW_USER_TOKEN)
+		err = SetAuthFlowWithContext(context, AUTH_FLOW_USER_TOKEN)
 		if err != nil {
 			errServer = fmt.Errorf("set auth flow type: %w", err)
 			return
@@ -195,7 +195,7 @@ func AuthorizeUser(p *print.Printer, isReauthentication bool) error {
 
 		p.Debug(print.DebugLevel, "user %s logged in successfully", email)
 
-		err = LoginUser(email, accessToken, refreshToken, sessionExpiresAtUnix)
+		err = LoginUserWithContext(context, email, accessToken, refreshToken, sessionExpiresAtUnix)
 		if err != nil {
 			errServer = fmt.Errorf("set in auth storage: %w", err)
 			return
@@ -211,7 +211,7 @@ func AuthorizeUser(p *print.Printer, isReauthentication bool) error {
 	mux.HandleFunc(loginSuccessPath, func(w http.ResponseWriter, _ *http.Request) {
 		defer cleanup(server)
 
-		email, err := GetAuthField(USER_EMAIL)
+		email, err := GetAuthFieldWithContext(context, USER_EMAIL)
 		if err != nil {
 			errServer = fmt.Errorf("read user email: %w", err)
 		}
@@ -350,7 +350,7 @@ func openBrowser(pageUrl string) error {
 
 // parseWellKnownConfiguration gets the well-known OpenID configuration from the provided URL and returns it as a JSON
 // the method also stores the IDP token endpoint in the authentication storage
-func parseWellKnownConfiguration(httpClient apiClient, wellKnownConfigURL string) (wellKnownConfig *wellKnownConfig, err error) {
+func parseWellKnownConfiguration(httpClient apiClient, wellKnownConfigURL string, context StorageContext) (wellKnownConfig *wellKnownConfig, err error) {
 	req, _ := http.NewRequest("GET", wellKnownConfigURL, http.NoBody)
 	res, err := httpClient.Do(req)
 	if err != nil {
@@ -386,7 +386,7 @@ func parseWellKnownConfiguration(httpClient apiClient, wellKnownConfigURL string
 		return nil, fmt.Errorf("found no token endpoint")
 	}
 
-	err = SetAuthField(IDP_TOKEN_ENDPOINT, wellKnownConfig.TokenEndpoint)
+	err = SetAuthFieldWithContext(context, IDP_TOKEN_ENDPOINT, wellKnownConfig.TokenEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("set token endpoint in the authentication storage: %w", err)
 	}
