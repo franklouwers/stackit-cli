@@ -934,6 +934,109 @@ The CLI's `internal/pkg/auth/user_token_flow.go` demonstrates all these patterns
 
 When implementing provider auth for Terraform/SDK, **add** the missing mutex and proactive refresh window.
 
+## Public API for External Integration
+
+### Overview
+
+The CLI exposes a public API in `pkg/auth` for external tools (Terraform Provider, SDK) to use CLI credentials without requiring service accounts.
+
+**Package:** `github.com/stackitcloud/stackit-cli/pkg/auth`
+
+### API Functions
+
+#### `ProviderAuthFlow(p *print.Printer) (http.RoundTripper, error)`
+
+Returns an `http.RoundTripper` that authenticates using provider credentials stored by `stackit auth provider login`.
+
+**Features:**
+- Adds Authorization header to all requests
+- Automatically refreshes expired tokens
+- Writes refreshed tokens back to storage (bidirectional sync)
+- Re-authenticates if refresh fails
+
+**Usage:**
+```go
+import "github.com/stackitcloud/stackit-cli/pkg/auth"
+
+authFlow, err := auth.ProviderAuthFlow(printer)
+if err != nil {
+    // User needs to run: stackit auth provider login
+    return err
+}
+
+client := &http.Client{Transport: authFlow}
+```
+
+#### `GetProviderAccessToken(p *print.Printer) (string, error)`
+
+Returns a valid access token for the provider context. Automatically refreshes if expired.
+
+**Usage:**
+```go
+token, err := auth.GetProviderAccessToken(printer)
+if err != nil {
+    return err
+}
+// Use token in Authorization header
+```
+
+#### `IsProviderAuthenticated() bool`
+
+Checks if provider credentials exist (user has run `stackit auth provider login`).
+
+**Usage:**
+```go
+if !auth.IsProviderAuthenticated() {
+    fmt.Println("Please run: stackit auth provider login")
+    return
+}
+```
+
+### Error Handling
+
+The API provides `NotAuthenticatedError` when credentials are not found:
+
+```go
+authFlow, err := auth.ProviderAuthFlow(printer)
+if err != nil {
+    var notAuthErr *auth.NotAuthenticatedError
+    if errors.As(err, &notAuthErr) {
+        // Prompt user to authenticate
+    }
+}
+```
+
+### Integration Example
+
+Complete example for STACKIT SDK integration:
+
+```go
+import (
+    "github.com/stackitcloud/stackit-cli/pkg/auth"
+    "github.com/stackitcloud/stackit-cli/internal/pkg/print"
+    sdkConfig "github.com/stackitcloud/stackit-sdk-go/core/config"
+)
+
+// Check authentication
+if !auth.IsProviderAuthenticated() {
+    return errors.New("please run: stackit auth provider login")
+}
+
+// Get auth flow
+authFlow, err := auth.ProviderAuthFlow(printer)
+if err != nil {
+    return err
+}
+
+// Configure SDK
+cfg := sdkConfig.WithCustomAuth(authFlow)
+client := someSDKService.NewAPIClient(cfg)
+```
+
+### Documentation
+
+See `pkg/auth/README.md` for complete documentation and examples.
+
 ## Recent Updates
 
 **Last Updated:** 2025-11-25
