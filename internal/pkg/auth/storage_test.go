@@ -1100,6 +1100,469 @@ func makeProfileNameUnique(profile string) string {
 	return fmt.Sprintf("%s-%s", profile, time.Now().Format("20060102150405"))
 }
 
+// TestStorageContextSeparation tests that CLI and Provider contexts use different keyring services
+func TestStorageContextSeparation(t *testing.T) {
+	var testField authFieldKey = "test-field-context"
+	testValueCLI := fmt.Sprintf("cli-value-%s", time.Now().Format(time.RFC3339))
+	testValueProvider := fmt.Sprintf("provider-value-%s", time.Now().Format(time.RFC3339))
+
+	tests := []struct {
+		description  string
+		keyringFails bool
+	}{
+		{
+			description: "with keyring",
+		},
+		{
+			description:  "with file fallback",
+			keyringFails: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			if !tt.keyringFails {
+				keyring.MockInit()
+			} else {
+				keyring.MockInitWithError(fmt.Errorf("keyring unavailable for testing"))
+			}
+
+			// Set value in CLI context
+			err := SetAuthFieldWithContext(StorageContextCLI, testField, testValueCLI)
+			if err != nil {
+				t.Fatalf("Failed to set CLI context field: %v", err)
+			}
+
+			// Set value in Provider context
+			err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+			if err != nil {
+				t.Fatalf("Failed to set Provider context field: %v", err)
+			}
+
+			// Verify CLI context value
+			valueCLI, err := GetAuthFieldWithContext(StorageContextCLI, testField)
+			if err != nil {
+				t.Fatalf("Failed to get CLI context field: %v", err)
+			}
+			if valueCLI != testValueCLI {
+				t.Errorf("CLI context value incorrect: expected %s, got %s", testValueCLI, valueCLI)
+			}
+
+			// Verify Provider context value
+			valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+			if err != nil {
+				t.Fatalf("Failed to get Provider context field: %v", err)
+			}
+			if valueProvider != testValueProvider {
+				t.Errorf("Provider context value incorrect: expected %s, got %s", testValueProvider, valueProvider)
+			}
+
+			// Cleanup
+			activeProfile, _ := config.GetProfile()
+			if !tt.keyringFails {
+				_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, testField)
+				_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+			} else {
+				_ = deleteAuthFieldInEncodedTextFileWithContext(StorageContextCLI, activeProfile, testField)
+				_ = deleteAuthFieldInEncodedTextFileWithContext(StorageContextProvider, activeProfile, testField)
+			}
+		})
+	}
+}
+
+// TestStorageContextIsolation tests that changes in one context don't affect the other
+func TestStorageContextIsolation(t *testing.T) {
+	var testField authFieldKey = "test-field-isolation"
+	testValueCLI := fmt.Sprintf("cli-value-%s", time.Now().Format(time.RFC3339))
+	testValueProvider := fmt.Sprintf("provider-value-%s", time.Now().Format(time.RFC3339))
+	updatedValueCLI := fmt.Sprintf("cli-updated-%s", time.Now().Format(time.RFC3339))
+
+	keyring.MockInit()
+
+	// Set values in both contexts
+	err := SetAuthFieldWithContext(StorageContextCLI, testField, testValueCLI)
+	if err != nil {
+		t.Fatalf("Failed to set CLI context field: %v", err)
+	}
+
+	err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+	if err != nil {
+		t.Fatalf("Failed to set Provider context field: %v", err)
+	}
+
+	// Update CLI context value
+	err = SetAuthFieldWithContext(StorageContextCLI, testField, updatedValueCLI)
+	if err != nil {
+		t.Fatalf("Failed to update CLI context field: %v", err)
+	}
+
+	// Verify CLI context was updated
+	valueCLI, err := GetAuthFieldWithContext(StorageContextCLI, testField)
+	if err != nil {
+		t.Fatalf("Failed to get CLI context field: %v", err)
+	}
+	if valueCLI != updatedValueCLI {
+		t.Errorf("CLI context value not updated: expected %s, got %s", updatedValueCLI, valueCLI)
+	}
+
+	// Verify Provider context was NOT affected
+	valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+	if err != nil {
+		t.Fatalf("Failed to get Provider context field: %v", err)
+	}
+	if valueProvider != testValueProvider {
+		t.Errorf("Provider context value changed unexpectedly: expected %s, got %s", testValueProvider, valueProvider)
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, testField)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+}
+
+// TestStorageContextDeletion tests that deleting from one context doesn't affect the other
+func TestStorageContextDeletion(t *testing.T) {
+	var testField authFieldKey = "test-field-deletion"
+	testValueCLI := fmt.Sprintf("cli-value-%s", time.Now().Format(time.RFC3339))
+	testValueProvider := fmt.Sprintf("provider-value-%s", time.Now().Format(time.RFC3339))
+
+	keyring.MockInit()
+
+	// Set values in both contexts
+	err := SetAuthFieldWithContext(StorageContextCLI, testField, testValueCLI)
+	if err != nil {
+		t.Fatalf("Failed to set CLI context field: %v", err)
+	}
+
+	err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+	if err != nil {
+		t.Fatalf("Failed to set Provider context field: %v", err)
+	}
+
+	// Delete from CLI context
+	err = DeleteAuthFieldWithContext(StorageContextCLI, testField)
+	if err != nil {
+		t.Fatalf("Failed to delete CLI context field: %v", err)
+	}
+
+	// Verify CLI context field is deleted
+	_, err = GetAuthFieldWithContext(StorageContextCLI, testField)
+	if err == nil {
+		t.Errorf("CLI context field still exists after deletion")
+	}
+
+	// Verify Provider context field still exists
+	valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+	if err != nil {
+		t.Errorf("Provider context field was deleted unexpectedly: %v", err)
+	}
+	if valueProvider != testValueProvider {
+		t.Errorf("Provider context value changed: expected %s, got %s", testValueProvider, valueProvider)
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+}
+
+// TestStorageContextWithProfiles tests context separation with custom profiles
+func TestStorageContextWithProfiles(t *testing.T) {
+	var testField authFieldKey = "test-field-profile-context"
+	testProfile := makeProfileNameUnique("test-profile")
+
+	// Make sure profile name is valid
+	err := config.ValidateProfile(testProfile)
+	if err != nil {
+		t.Fatalf("Profile name \"%s\" is invalid: %v", testProfile, err)
+	}
+
+	testValueCLI := fmt.Sprintf("cli-value-%s", time.Now().Format(time.RFC3339))
+	testValueProvider := fmt.Sprintf("provider-value-%s", time.Now().Format(time.RFC3339))
+
+	keyring.MockInit()
+
+	// Set values in both contexts for custom profile
+	err = setAuthFieldWithProfileAndContext(StorageContextCLI, testProfile, testField, testValueCLI)
+	if err != nil {
+		t.Fatalf("Failed to set CLI context field for profile: %v", err)
+	}
+
+	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, testField, testValueProvider)
+	if err != nil {
+		t.Fatalf("Failed to set Provider context field for profile: %v", err)
+	}
+
+	// Verify both contexts have correct values for the profile
+	valueCLI, err := getAuthFieldWithProfileAndContext(StorageContextCLI, testProfile, testField)
+	if err != nil {
+		t.Fatalf("Failed to get CLI context field for profile: %v", err)
+	}
+	if valueCLI != testValueCLI {
+		t.Errorf("CLI context value incorrect: expected %s, got %s", testValueCLI, valueCLI)
+	}
+
+	valueProvider, err := getAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, testField)
+	if err != nil {
+		t.Fatalf("Failed to get Provider context field for profile: %v", err)
+	}
+	if valueProvider != testValueProvider {
+		t.Errorf("Provider context value incorrect: expected %s, got %s", testValueProvider, valueProvider)
+	}
+
+	// Cleanup
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, testProfile, testField)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, testField)
+	_ = deleteProfileFiles(testProfile)
+}
+
+// TestLoginLogoutWithContext tests login/logout with different contexts
+func TestLoginLogoutWithContext(t *testing.T) {
+	email := "test@example.com"
+	accessToken := "test-access-token"
+	refreshToken := "test-refresh-token"
+	sessionExpires := "1234567890"
+
+	emailProvider := "provider@example.com"
+	accessTokenProvider := "provider-access-token"
+	refreshTokenProvider := "provider-refresh-token"
+	sessionExpiresProvider := "9876543210"
+
+	keyring.MockInit()
+
+	// Login to CLI context
+	err := LoginUserWithContext(StorageContextCLI, email, accessToken, refreshToken, sessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to login to CLI context: %v", err)
+	}
+
+	// Login to Provider context
+	err = LoginUserWithContext(StorageContextProvider, emailProvider, accessTokenProvider, refreshTokenProvider, sessionExpiresProvider)
+	if err != nil {
+		t.Fatalf("Failed to login to Provider context: %v", err)
+	}
+
+	// Verify CLI context credentials
+	cliEmail, err := GetAuthFieldWithContext(StorageContextCLI, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get CLI email: %v", err)
+	}
+	if cliEmail != email {
+		t.Errorf("CLI email incorrect: expected %s, got %s", email, cliEmail)
+	}
+
+	cliAccessToken, err := GetAuthFieldWithContext(StorageContextCLI, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get CLI access token: %v", err)
+	}
+	if cliAccessToken != accessToken {
+		t.Errorf("CLI access token incorrect")
+	}
+
+	// Verify Provider context credentials
+	providerEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get Provider email: %v", err)
+	}
+	if providerEmail != emailProvider {
+		t.Errorf("Provider email incorrect: expected %s, got %s", emailProvider, providerEmail)
+	}
+
+	providerAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get Provider access token: %v", err)
+	}
+	if providerAccessToken != accessTokenProvider {
+		t.Errorf("Provider access token incorrect")
+	}
+
+	// Logout from CLI context
+	err = LogoutUserWithContext(StorageContextCLI)
+	if err != nil {
+		t.Fatalf("Failed to logout from CLI context: %v", err)
+	}
+
+	// Verify CLI context is logged out
+	_, err = GetAuthFieldWithContext(StorageContextCLI, USER_EMAIL)
+	if err == nil {
+		t.Errorf("CLI context still has credentials after logout")
+	}
+
+	// Verify Provider context still has credentials
+	providerEmailAfter, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Provider context lost credentials after CLI logout: %v", err)
+	}
+	if providerEmailAfter != emailProvider {
+		t.Errorf("Provider email changed after CLI logout")
+	}
+
+	// Cleanup Provider context
+	err = LogoutUserWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to logout from Provider context: %v", err)
+	}
+}
+
+// TestAuthFlowWithContext tests auth flow operations with contexts
+func TestAuthFlowWithContext(t *testing.T) {
+	keyring.MockInit()
+
+	// Set different auth flows for different contexts
+	err := SetAuthFlowWithContext(StorageContextCLI, AUTH_FLOW_USER_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to set CLI auth flow: %v", err)
+	}
+
+	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_SERVICE_ACCOUNT_KEY)
+	if err != nil {
+		t.Fatalf("Failed to set Provider auth flow: %v", err)
+	}
+
+	// Verify CLI context auth flow
+	cliFlow, err := GetAuthFlowWithContext(StorageContextCLI)
+	if err != nil {
+		t.Fatalf("Failed to get CLI auth flow: %v", err)
+	}
+	if cliFlow != AUTH_FLOW_USER_TOKEN {
+		t.Errorf("CLI auth flow incorrect: expected %s, got %s", AUTH_FLOW_USER_TOKEN, cliFlow)
+	}
+
+	// Verify Provider context auth flow
+	providerFlow, err := GetAuthFlowWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to get Provider auth flow: %v", err)
+	}
+	if providerFlow != AUTH_FLOW_SERVICE_ACCOUNT_KEY {
+		t.Errorf("Provider auth flow incorrect: expected %s, got %s", AUTH_FLOW_SERVICE_ACCOUNT_KEY, providerFlow)
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, authFlowType)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+}
+
+// TestGetKeyringServiceName tests the keyring service name generation
+func TestGetKeyringServiceName(t *testing.T) {
+	tests := []struct {
+		description     string
+		context         StorageContext
+		profile         string
+		expectedService string
+	}{
+		{
+			description:     "CLI context, default profile",
+			context:         StorageContextCLI,
+			profile:         config.DefaultProfileName,
+			expectedService: "stackit-cli",
+		},
+		{
+			description:     "CLI context, custom profile",
+			context:         StorageContextCLI,
+			profile:         "my-profile",
+			expectedService: "stackit-cli/my-profile",
+		},
+		{
+			description:     "Provider context, default profile",
+			context:         StorageContextProvider,
+			profile:         config.DefaultProfileName,
+			expectedService: "stackit-cli-provider",
+		},
+		{
+			description:     "Provider context, custom profile",
+			context:         StorageContextProvider,
+			profile:         "my-profile",
+			expectedService: "stackit-cli-provider/my-profile",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			serviceName := getKeyringServiceName(tt.context, tt.profile)
+			if serviceName != tt.expectedService {
+				t.Errorf("Keyring service name incorrect: expected %s, got %s", tt.expectedService, serviceName)
+			}
+		})
+	}
+}
+
+// TestGetTextFileName tests the text file name generation
+func TestGetTextFileName(t *testing.T) {
+	tests := []struct {
+		description  string
+		context      StorageContext
+		expectedName string
+	}{
+		{
+			description:  "CLI context",
+			context:      StorageContextCLI,
+			expectedName: "cli-auth-storage.txt",
+		},
+		{
+			description:  "Provider context",
+			context:      StorageContextProvider,
+			expectedName: "cli-provider-auth-storage.txt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			fileName := getTextFileName(tt.context)
+			if fileName != tt.expectedName {
+				t.Errorf("Text file name incorrect: expected %s, got %s", tt.expectedName, fileName)
+			}
+		})
+	}
+}
+
+// TestAuthFieldMapWithContext tests bulk operations with contexts
+func TestAuthFieldMapWithContext(t *testing.T) {
+	testFields := map[authFieldKey]string{
+		"test-field-1": fmt.Sprintf("value-1-%s", time.Now().Format(time.RFC3339)),
+		"test-field-2": fmt.Sprintf("value-2-%s", time.Now().Format(time.RFC3339)),
+		"test-field-3": fmt.Sprintf("value-3-%s", time.Now().Format(time.RFC3339)),
+	}
+
+	keyring.MockInit()
+
+	// Set fields in Provider context
+	err := SetAuthFieldMapWithContext(StorageContextProvider, testFields)
+	if err != nil {
+		t.Fatalf("Failed to set field map in Provider context: %v", err)
+	}
+
+	// Read fields from Provider context
+	readFields := make(map[authFieldKey]string)
+	for key := range testFields {
+		readFields[key] = ""
+	}
+	err = GetAuthFieldMapWithContext(StorageContextProvider, readFields)
+	if err != nil {
+		t.Fatalf("Failed to get field map from Provider context: %v", err)
+	}
+
+	// Verify all fields match
+	for key, expectedValue := range testFields {
+		if readFields[key] != expectedValue {
+			t.Errorf("Field %s incorrect: expected %s, got %s", key, expectedValue, readFields[key])
+		}
+	}
+
+	// Verify fields don't exist in CLI context
+	for key := range testFields {
+		_, err := GetAuthFieldWithContext(StorageContextCLI, key)
+		if err == nil {
+			t.Errorf("Field %s unexpectedly exists in CLI context", key)
+		}
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	for key := range testFields {
+		_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, key)
+	}
+}
+
 func TestAuthorizeDeauthorizeUserProfileAuth(t *testing.T) {
 	type args struct {
 		sessionExpiresAtUnix string
