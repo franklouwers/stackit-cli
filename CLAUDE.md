@@ -57,13 +57,24 @@ The STACKIT CLI supports three authentication flows:
   - Linux: Secret Service (libsecret)
 - **Fallback:** Base64-encoded JSON file (when keyring unavailable)
 
-**Current Keyring Service Names:**
-- Default profile: `stackit-cli`
-- Named profile: `stackit-cli/{profile-name}`
+**Storage Contexts:**
 
-**Current File Locations:**
-- Default profile: `~/.stackit/cli-auth-storage.txt`
-- Named profile: `~/.stackit/profiles/{profile-name}/cli-auth-storage.txt`
+The storage layer supports two independent storage contexts for credential isolation:
+
+- **CLI Context** (`StorageContextCLI`) - Used by `stackit auth` commands for CLI authentication
+- **Provider Context** (`StorageContextProvider`) - Used by `stackit auth provider` commands for Terraform Provider/SDK authentication
+
+**Keyring Service Names:**
+| Context | Default Profile | Named Profile |
+|---------|----------------|---------------|
+| CLI | `stackit-cli` | `stackit-cli/{profile-name}` |
+| Provider | `stackit-cli-provider` | `stackit-cli-provider/{profile-name}` |
+
+**File Locations:**
+| Context | Default Profile | Named Profile |
+|---------|----------------|---------------|
+| CLI | `~/.stackit/cli-auth-storage.txt` | `~/.stackit/profiles/{profile-name}/cli-auth-storage.txt` |
+| Provider | `~/.stackit/cli-provider-auth-storage.txt` | `~/.stackit/profiles/{profile-name}/cli-provider-auth-storage.txt` |
 
 **File Format:**
 ```
@@ -256,6 +267,64 @@ stackit auth
 - Calls `auth.GetValidAccessToken(p)`
 - Automatically refreshes if expired
 - Supports JSON output format
+
+### Provider Auth Commands (`internal/cmd/auth/provider/`)
+
+**Purpose:** Enables Terraform Provider and SDK to use CLI user credentials instead of requiring service accounts for local development.
+
+**Command Structure:**
+```
+stackit auth provider
+├── login                        # Provider login (OAuth2 PKCE)
+├── logout                       # Provider logout
+├── get-access-token            # Get provider access token
+└── status                      # Show provider auth status
+```
+
+**Key Features:**
+- **Independent Storage:** Provider auth uses separate storage (`StorageContextProvider`) from CLI auth
+- **Concurrent Auth:** CLI and Provider can be authenticated simultaneously with different accounts
+- **Automatic Token Refresh:** `get-access-token` automatically refreshes expired tokens
+- **Profile Support:** Each profile has independent CLI and Provider authentication
+
+**`provider login` Command:** (`internal/cmd/auth/provider/login/login.go`)
+- Calls `auth.AuthorizeUser(p, auth.StorageContextProvider, false)`
+- Opens browser for OAuth2 flow
+- Stores credentials in Provider context
+
+**`provider logout` Command:** (`internal/cmd/auth/provider/logout/logout.go`)
+- Calls `auth.LogoutUserWithContext(auth.StorageContextProvider)`
+- Only removes Provider credentials, CLI auth unaffected
+
+**`provider get-access-token` Command:** (`internal/cmd/auth/provider/get-access-token/get_access_token.go`)
+- Calls `auth.GetValidAccessTokenWithContext(p, auth.StorageContextProvider)`
+- Automatically refreshes if expired
+- Writes refreshed tokens back to storage for bidirectional sync
+
+**`provider status` Command:** (`internal/cmd/auth/provider/status/status.go`)
+- Shows Provider authentication status (authenticated/not authenticated)
+- Displays user email and auth flow type
+- Supports JSON output format
+
+**Usage Example:**
+```bash
+# Login for Provider/SDK
+$ stackit auth provider login
+# Opens browser, stores credentials separately from CLI
+
+# Get access token (with auto-refresh)
+$ stackit auth provider get-access-token
+eyJhbGc...
+
+# Check status
+$ stackit auth provider status
+Provider Authentication Status: Authenticated
+Email: user@example.com
+Auth Flow: user_token
+
+# Logout from Provider only (CLI auth unaffected)
+$ stackit auth provider logout
+```
 
 ## Configuration Management
 
@@ -870,11 +939,18 @@ When implementing provider auth for Terraform/SDK, **add** the missing mutex and
 **Last Updated:** 2025-11-25
 
 **Major Changes:**
-- Planning for provider auth feature
-- Proposed refactoring of storage layer to support multiple contexts
-- Proposed new command group `stackit auth provider`
-- Research into Terraform provider authentication patterns
-- Documented critical token refresh requirements
+- ✅ **Provider Auth Feature Implemented** - Complete implementation of `stackit auth provider` commands
+- ✅ **Storage Layer Refactored** - Added `StorageContext` support for CLI and Provider credential isolation
+- ✅ **Token Management Enhanced** - Context-aware token refresh with bidirectional sync
+- ✅ **Comprehensive Testing** - Added 14 integration tests (10 from Phase 1 + 4 from Phase 5)
+- ✅ **Commands Added:** `provider login`, `provider logout`, `provider get-access-token`, `provider status`
+
+**Implementation Details:**
+- Storage contexts (`StorageContextCLI` and `StorageContextProvider`) enable independent authentication
+- All storage operations have `*WithContext()` variants for explicit context control
+- User login flow (`AuthorizeUser`) accepts context parameter for flexible authentication
+- Token refresh automatically writes updated tokens back to correct storage context
+- Each profile supports independent CLI and Provider authentication
 
 ---
 

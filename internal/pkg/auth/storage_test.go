@@ -1678,3 +1678,309 @@ func TestAuthorizeDeauthorizeUserProfileAuth(t *testing.T) {
 		})
 	}
 }
+
+// TestProviderAuthWorkflow tests the complete provider authentication workflow
+func TestProviderAuthWorkflow(t *testing.T) {
+	keyring.MockInit()
+
+	email := "provider@example.com"
+	accessToken := "provider-access-token"
+	refreshToken := "provider-refresh-token"
+	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
+
+	// Login to provider context
+	err := LoginUserWithContext(StorageContextProvider, email, accessToken, refreshToken, sessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to login to provider context: %v", err)
+	}
+
+	// Verify provider credentials exist
+	providerEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get provider email: %v", err)
+	}
+	if providerEmail != email {
+		t.Errorf("Provider email incorrect: expected %s, got %s", email, providerEmail)
+	}
+
+	providerAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get provider access token: %v", err)
+	}
+	if providerAccessToken != accessToken {
+		t.Errorf("Provider access token incorrect")
+	}
+
+	// Verify CLI context is empty
+	_, err = GetAuthFieldWithContext(StorageContextCLI, USER_EMAIL)
+	if err == nil {
+		t.Errorf("CLI context should be empty but has credentials")
+	}
+
+	// Set auth flow
+	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_USER_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to set provider auth flow: %v", err)
+	}
+
+	// Verify auth flow
+	providerFlow, err := GetAuthFlowWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to get provider auth flow: %v", err)
+	}
+	if providerFlow != AUTH_FLOW_USER_TOKEN {
+		t.Errorf("Provider auth flow incorrect: expected %s, got %s", AUTH_FLOW_USER_TOKEN, providerFlow)
+	}
+
+	// Logout from provider context
+	err = LogoutUserWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to logout from provider context: %v", err)
+	}
+
+	// Verify provider credentials are deleted
+	_, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err == nil {
+		t.Errorf("Provider credentials still exist after logout")
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+}
+
+// TestConcurrentCLIAndProviderAuth tests that CLI and Provider can be authenticated simultaneously
+func TestConcurrentCLIAndProviderAuth(t *testing.T) {
+	keyring.MockInit()
+
+	cliEmail := "cli@example.com"
+	cliAccessToken := "cli-access-token"
+	cliRefreshToken := "cli-refresh-token"
+	cliSessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
+
+	providerEmail := "provider@example.com"
+	providerAccessToken := "provider-access-token"
+	providerRefreshToken := "provider-refresh-token"
+	providerSessionExpires := fmt.Sprintf("%d", time.Now().Add(3*time.Hour).Unix())
+
+	// Login to both contexts
+	err := LoginUserWithContext(StorageContextCLI, cliEmail, cliAccessToken, cliRefreshToken, cliSessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to login to CLI context: %v", err)
+	}
+
+	err = LoginUserWithContext(StorageContextProvider, providerEmail, providerAccessToken, providerRefreshToken, providerSessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to login to Provider context: %v", err)
+	}
+
+	// Verify CLI credentials
+	gotCLIEmail, err := GetAuthFieldWithContext(StorageContextCLI, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get CLI email: %v", err)
+	}
+	if gotCLIEmail != cliEmail {
+		t.Errorf("CLI email incorrect: expected %s, got %s", cliEmail, gotCLIEmail)
+	}
+
+	gotCLIAccessToken, err := GetAuthFieldWithContext(StorageContextCLI, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get CLI access token: %v", err)
+	}
+	if gotCLIAccessToken != cliAccessToken {
+		t.Errorf("CLI access token incorrect")
+	}
+
+	// Verify Provider credentials
+	gotProviderEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get Provider email: %v", err)
+	}
+	if gotProviderEmail != providerEmail {
+		t.Errorf("Provider email incorrect: expected %s, got %s", providerEmail, gotProviderEmail)
+	}
+
+	gotProviderAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get Provider access token: %v", err)
+	}
+	if gotProviderAccessToken != providerAccessToken {
+		t.Errorf("Provider access token incorrect")
+	}
+
+	// Update CLI token
+	newCLIAccessToken := "cli-access-token-updated"
+	err = SetAuthFieldWithContext(StorageContextCLI, ACCESS_TOKEN, newCLIAccessToken)
+	if err != nil {
+		t.Fatalf("Failed to update CLI access token: %v", err)
+	}
+
+	// Verify CLI token was updated
+	gotCLIAccessToken, err = GetAuthFieldWithContext(StorageContextCLI, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get updated CLI access token: %v", err)
+	}
+	if gotCLIAccessToken != newCLIAccessToken {
+		t.Errorf("CLI access token not updated: expected %s, got %s", newCLIAccessToken, gotCLIAccessToken)
+	}
+
+	// Verify Provider token unchanged
+	gotProviderAccessToken, err = GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to get Provider access token after CLI update: %v", err)
+	}
+	if gotProviderAccessToken != providerAccessToken {
+		t.Errorf("Provider access token changed unexpectedly: expected %s, got %s", providerAccessToken, gotProviderAccessToken)
+	}
+
+	// Logout from CLI only
+	err = LogoutUserWithContext(StorageContextCLI)
+	if err != nil {
+		t.Fatalf("Failed to logout from CLI context: %v", err)
+	}
+
+	// Verify CLI credentials are deleted
+	_, err = GetAuthFieldWithContext(StorageContextCLI, USER_EMAIL)
+	if err == nil {
+		t.Errorf("CLI credentials still exist after logout")
+	}
+
+	// Verify Provider credentials still exist
+	gotProviderEmail, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Provider credentials deleted after CLI logout: %v", err)
+	}
+	if gotProviderEmail != providerEmail {
+		t.Errorf("Provider email changed after CLI logout")
+	}
+
+	// Cleanup
+	err = LogoutUserWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to logout from provider context: %v", err)
+	}
+}
+
+// TestProviderStatusReporting tests the status reporting for provider authentication
+func TestProviderStatusReporting(t *testing.T) {
+	keyring.MockInit()
+
+	// Initially not authenticated
+	flow, err := GetAuthFlowWithContext(StorageContextProvider)
+	if err == nil && flow != "" {
+		t.Errorf("Provider should not be authenticated initially, but has flow: %s", flow)
+	}
+
+	// Login
+	email := "provider@example.com"
+	accessToken := "provider-access-token"
+	refreshToken := "provider-refresh-token"
+	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
+
+	err = LoginUserWithContext(StorageContextProvider, email, accessToken, refreshToken, sessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to login: %v", err)
+	}
+
+	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_USER_TOKEN)
+	if err != nil {
+		t.Fatalf("Failed to set auth flow: %v", err)
+	}
+
+	// Verify authenticated status
+	flow, err = GetAuthFlowWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to get auth flow: %v", err)
+	}
+	if flow != AUTH_FLOW_USER_TOKEN {
+		t.Errorf("Auth flow incorrect: expected %s, got %s", AUTH_FLOW_USER_TOKEN, flow)
+	}
+
+	gotEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get email: %v", err)
+	}
+	if gotEmail != email {
+		t.Errorf("Email incorrect: expected %s, got %s", email, gotEmail)
+	}
+
+	// Logout
+	err = LogoutUserWithContext(StorageContextProvider)
+	if err != nil {
+		t.Fatalf("Failed to logout: %v", err)
+	}
+
+	// Verify credentials are deleted after logout
+	_, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	if err == nil {
+		t.Errorf("User email should not exist after logout")
+	}
+
+	_, err = GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	if err == nil {
+		t.Errorf("Access token should not exist after logout")
+	}
+
+	// Cleanup
+	activeProfile, _ := config.GetProfile()
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+}
+
+// TestProviderAuthWithProfiles tests provider authentication with custom profiles
+func TestProviderAuthWithProfiles(t *testing.T) {
+	keyring.MockInit()
+
+	testProfile := makeProfileNameUnique("test-profile")
+	err := config.ValidateProfile(testProfile)
+	if err != nil {
+		t.Fatalf("Profile name \"%s\" is invalid: %v", testProfile, err)
+	}
+
+	email := "provider@example.com"
+	accessToken := "provider-access-token"
+	refreshToken := "provider-refresh-token"
+	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
+
+	// Login to provider context with custom profile
+	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, USER_EMAIL, email)
+	if err != nil {
+		t.Fatalf("Failed to set provider email for profile: %v", err)
+	}
+
+	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, ACCESS_TOKEN, accessToken)
+	if err != nil {
+		t.Fatalf("Failed to set provider access token for profile: %v", err)
+	}
+
+	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, REFRESH_TOKEN, refreshToken)
+	if err != nil {
+		t.Fatalf("Failed to set provider refresh token for profile: %v", err)
+	}
+
+	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, SESSION_EXPIRES_AT_UNIX, sessionExpires)
+	if err != nil {
+		t.Fatalf("Failed to set provider session expiry for profile: %v", err)
+	}
+
+	// Verify provider credentials for custom profile
+	gotEmail, err := getAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, USER_EMAIL)
+	if err != nil {
+		t.Fatalf("Failed to get provider email for profile: %v", err)
+	}
+	if gotEmail != email {
+		t.Errorf("Provider email incorrect: expected %s, got %s", email, gotEmail)
+	}
+
+	// Verify CLI context for same profile is empty
+	_, err = getAuthFieldWithProfileAndContext(StorageContextCLI, testProfile, USER_EMAIL)
+	if err == nil {
+		t.Errorf("CLI context for profile should be empty but has credentials")
+	}
+
+	// Cleanup
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, USER_EMAIL)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, ACCESS_TOKEN)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, REFRESH_TOKEN)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, SESSION_EXPIRES_AT_UNIX)
+	_ = deleteProfileFiles(testProfile)
+}
