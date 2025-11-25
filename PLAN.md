@@ -675,6 +675,16 @@ func refreshTokens(u *userTokenFlow) error {
 
 **SDK Changes (stackit-sdk-go):**
 
+**Research Findings:** Based on investigation of Terraform provider authentication patterns, golang.org/x/oauth2, and the STACKIT CLI's existing implementation, the following critical requirements must be met:
+
+1. **Token refresh must happen on EVERY HTTP request** (not just at initialization)
+2. **Refreshed tokens MUST be written back to CLI storage** (keyring/file) for consistency
+3. **Both access_token AND refresh_token are rotated** on each refresh
+4. **Thread-safety is required** using `sync.Mutex`
+5. **Proactive refresh** (e.g., 5 seconds before expiration) prevents timing issues
+
+**Implementation:**
+
 1. Add new configuration option `WithCliAuth()`:
 ```go
 package config
@@ -682,14 +692,19 @@ package config
 func WithCliAuth() ConfigurationOption {
     return func(c *Configuration) error {
         // Try to load credentials from keyring or file
-        credentials, err := loadCliAuthCredentials()
+        credentials, storage, err := loadCliAuthCredentials()
         if err != nil {
             return fmt.Errorf("load CLI auth credentials: %w", err)
         }
 
         // Create a round tripper that handles token refresh
+        // CRITICAL: Pass storage handle to write tokens back
         rt := &cliAuthRoundTripper{
-            credentials: credentials,
+            accessToken:   credentials.AccessToken,
+            refreshToken:  credentials.RefreshToken,
+            tokenEndpoint: credentials.TokenEndpoint,
+            storage:       storage, // For writing refreshed tokens back
+            mu:            sync.Mutex{},
         }
 
         c.HTTPClient = &http.Client{
@@ -700,8 +715,14 @@ func WithCliAuth() ConfigurationOption {
     }
 }
 
-func loadCliAuthCredentials() (*cliAuthCredentials, error) {
+type cliAuthStorage interface {
+    WriteToken(key, value string) error
+    ReadToken(key string) (string, error)
+}
+
+func loadCliAuthCredentials() (*cliAuthCredentials, cliAuthStorage, error) {
     // 1. Try keyring first (service: stackit-cli-provider)
+    storage := &keyringStorage{}
     accessToken, err := keyring.Get("stackit-cli-provider", "access_token")
     if err == nil {
         refreshToken, _ := keyring.Get("stackit-cli-provider", "refresh_token")
@@ -710,60 +731,137 @@ func loadCliAuthCredentials() (*cliAuthCredentials, error) {
             AccessToken:   accessToken,
             RefreshToken:  refreshToken,
             TokenEndpoint: tokenEndpoint,
-        }, nil
+        }, storage, nil
     }
 
     // 2. Fall back to file
+    storage = &fileStorage{}
     filePath := filepath.Join(os.Getenv("HOME"), ".stackit", "cli-provider-auth-storage.txt")
     data, err := os.ReadFile(filePath)
     if err != nil {
-        return nil, fmt.Errorf("no CLI auth credentials found: %w", err)
+        return nil, nil, fmt.Errorf("no CLI auth credentials found: %w", err)
     }
 
     // Decode and parse
     decoded, err := base64.StdEncoding.DecodeString(string(data))
     if err != nil {
-        return nil, fmt.Errorf("decode credentials: %w", err)
+        return nil, nil, fmt.Errorf("decode credentials: %w", err)
     }
 
     var creds map[string]string
     err = json.Unmarshal(decoded, &creds)
     if err != nil {
-        return nil, fmt.Errorf("parse credentials: %w", err)
+        return nil, nil, fmt.Errorf("parse credentials: %w", err)
     }
 
     return &cliAuthCredentials{
         AccessToken:   creds["access_token"],
         RefreshToken:  creds["refresh_token"],
         TokenEndpoint: creds["idp_token_endpoint"],
-    }, nil
+    }, storage, nil
 }
 ```
 
 2. Implement token refresh in `cliAuthRoundTripper`:
 ```go
 type cliAuthRoundTripper struct {
-    credentials *cliAuthCredentials
-    mu          sync.Mutex
+    accessToken   string
+    refreshToken  string
+    tokenEndpoint string
+    storage       cliAuthStorage // CRITICAL: For writing tokens back
+    mu            sync.Mutex     // CRITICAL: Thread safety
 }
+
+// Ensure interface compliance
+var _ http.RoundTripper = &cliAuthRoundTripper{}
 
 func (c *cliAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
     c.mu.Lock()
     defer c.mu.Unlock()
 
-    // Check if token is expired
-    if c.tokenExpired() {
-        err := c.refreshToken()
+    // Check if token is expired (or about to expire)
+    // Refresh 5 seconds before expiration to prevent timing issues
+    if c.tokenExpiresSoon(5 * time.Second) {
+        err := c.refreshTokens()
         if err != nil {
             return nil, fmt.Errorf("refresh token: %w", err)
         }
     }
 
     // Add bearer token to request
-    req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.credentials.AccessToken))
+    req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.accessToken))
 
     // Execute request
     return http.DefaultTransport.RoundTrip(req)
+}
+
+func (c *cliAuthRoundTripper) tokenExpiresSoon(buffer time.Duration) bool {
+    // Parse JWT token to check expiration
+    parsedToken, _, err := jwt.NewParser().ParseUnverified(c.accessToken, &jwt.RegisteredClaims{})
+    if err != nil {
+        return true // Assume expired if can't parse
+    }
+
+    exp, err := parsedToken.Claims.GetExpirationTime()
+    if err != nil || exp == nil {
+        return true
+    }
+
+    // Check if token expires within buffer time
+    return time.Now().Add(buffer).After(exp.Time)
+}
+
+func (c *cliAuthRoundTripper) refreshTokens() error {
+    // Build refresh request (similar to CLI's refreshTokens function)
+    req, err := http.NewRequest(http.MethodPost, c.tokenEndpoint, http.NoBody)
+    if err != nil {
+        return fmt.Errorf("build refresh request: %w", err)
+    }
+
+    reqQuery := url.Values{}
+    reqQuery.Set("grant_type", "refresh_token")
+    reqQuery.Set("client_id", "stackit-cli-0000-0000-000000000001")
+    reqQuery.Set("refresh_token", c.refreshToken)
+    reqQuery.Set("token_format", "jwt")
+    req.URL.RawQuery = reqQuery.Encode()
+
+    // Execute refresh
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        return fmt.Errorf("call token endpoint: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        body, _ := io.ReadAll(resp.Body)
+        return fmt.Errorf("token refresh failed: %d %s", resp.StatusCode, string(body))
+    }
+
+    // Parse response
+    var tokenResp struct {
+        AccessToken  string `json:"access_token"`
+        RefreshToken string `json:"refresh_token"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+        return fmt.Errorf("parse refresh response: %w", err)
+    }
+
+    // CRITICAL: Write refreshed tokens back to CLI storage
+    // This ensures consistency across multiple Terraform runs and CLI usage
+    if err := c.storage.WriteToken("access_token", tokenResp.AccessToken); err != nil {
+        return fmt.Errorf("write access token to storage: %w", err)
+    }
+    if err := c.storage.WriteToken("refresh_token", tokenResp.RefreshToken); err != nil {
+        return fmt.Errorf("write refresh token to storage: %w", err)
+    }
+
+    // Update in-memory tokens
+    // NOTE: Both tokens are rotated, not just access token
+    c.accessToken = tokenResp.AccessToken
+    c.refreshToken = tokenResp.RefreshToken
+
+    return nil
 }
 ```
 
@@ -885,6 +983,123 @@ No migration required - this is a new opt-in feature:
 - Integration testing
 
 **Total Estimated Time:** 2-3 weeks for CLI, 1-2 weeks for SDK/Provider
+
+## Research Findings: Terraform Provider Authentication
+
+### Key Insights from Investigation
+
+**Date:** 2025-11-25
+
+Based on research into Terraform provider authentication patterns, golang.org/x/oauth2, Kubernetes client-go, and analysis of the STACKIT CLI's existing implementation, the following critical insights were discovered:
+
+#### 1. Terraform Has No Native Token Refresh Support
+
+Terraform CLI does not natively support OAuth refresh tokens or token expiration. This is entirely a **provider-specific responsibility**. Each provider must implement its own token refresh mechanism.
+
+**Source:** [Stack Overflow: Refresh token for the provider in terraform](https://stackoverflow.com/questions/71926705/refresh-token-for-the-provider-in-terraform)
+
+#### 2. The http.RoundTripper Pattern is Standard
+
+All successful OAuth implementations in Go use the `http.RoundTripper` interface pattern:
+
+- **golang.org/x/oauth2**: Provides `oauth2.Transport` that automatically refreshes tokens
+- **Kubernetes client-go**: Uses `NewBearerAuthWithRefreshRoundTripper`
+- **STACKIT CLI**: Already implements this pattern in `user_token_flow.go`
+
+The pattern works by:
+1. Intercepting each HTTP request via `RoundTrip()`
+2. Checking token expiration before the request
+3. Refreshing if needed
+4. Adding `Authorization: Bearer <token>` header
+5. Executing the request
+
+#### 3. Token Refresh Must Happen Per-Request
+
+**Critical Finding:** Token expiration checks must occur on **every HTTP request**, not just at provider initialization.
+
+Long-running Terraform operations (e.g., `terraform apply` with many resources) can exceed token lifetimes. If tokens are only checked at startup, mid-operation authentication failures occur.
+
+**Source:** [Azure Provider Issue #15894](https://github.com/hashicorp/terraform-provider-azurerm/issues/15894)
+
+#### 4. Refreshed Tokens MUST Be Written Back to Storage
+
+**Most Critical Finding:** When the SDK/Provider refreshes tokens, they **MUST** be written back to the CLI's storage (keyring or file).
+
+**Why this is critical:**
+- Multiple Terraform runs may execute concurrently
+- CLI commands may execute while Terraform is running
+- Token state must be consistent across all processes
+- Prevents multiple simultaneous refresh attempts
+- Allows CLI to use tokens refreshed by Terraform and vice versa
+
+This is a **bidirectional sync requirement** that wasn't obvious from initial design.
+
+#### 5. Both Access Token AND Refresh Token Are Rotated
+
+OAuth2 refresh responses include **both** a new access token and a new refresh token. Both must be stored.
+
+**From STACKIT CLI's `refreshTokens()` function:**
+```go
+// Parse response for BOTH tokens
+AccessToken  string `json:"access_token"`
+RefreshToken string `json:"refresh_token"`
+
+// Store BOTH back to storage
+SetAuthFieldMap(map[authFieldKey]string{
+    ACCESS_TOKEN:  accessToken,
+    REFRESH_TOKEN: refreshToken,
+})
+```
+
+#### 6. Proactive Refresh Prevents Timing Issues
+
+The STACKIT SDK documentation states: "Access tokens generated via key flow authentication are refreshed 5 seconds before expiration to prevent timing issues."
+
+**Best Practice:** Check if token expires within a buffer window (e.g., 5 seconds) rather than checking if it's already expired.
+
+```go
+func tokenExpiresSoon(token string, buffer time.Duration) bool {
+    exp := parseExpiration(token)
+    return time.Now().Add(buffer).After(exp)
+}
+```
+
+#### 7. Thread Safety is Required
+
+The `http.RoundTripper` may be called concurrently by the HTTP client. Token refresh operations must be protected with `sync.Mutex` to prevent:
+- Race conditions on token variables
+- Multiple simultaneous refresh requests
+- Corrupted token state
+
+**Pattern:**
+```go
+type cliAuthRoundTripper struct {
+    mu sync.Mutex
+    // ... token fields
+}
+
+func (c *cliAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    // ... refresh logic
+}
+```
+
+### Implications for Implementation
+
+1. **Phase 4 (Token Management)** must include write-back to storage in `refreshTokens()`
+2. **Phase 6 (SDK Integration)** requires a storage abstraction interface to read/write tokens
+3. The SDK's `cliAuthRoundTripper` must mirror the CLI's `userTokenFlow` pattern exactly
+4. Storage operations in SDK must support both keyring and file (same as CLI)
+5. Testing must verify concurrent access and token rotation
+
+### References
+
+- [Terraform provider refresh token discussion](https://stackoverflow.com/questions/71926705/refresh-token-for-the-provider-in-terraform)
+- [golang.org/x/oauth2 package](https://pkg.go.dev/golang.org/x/oauth2)
+- [Azure provider token refresh issue](https://github.com/hashicorp/terraform-provider-azurerm/issues/15894)
+- [STACKIT SDK authentication](https://pkg.go.dev/github.com/stackitcloud/stackit-sdk-go/core/auth)
+- [Kubernetes client-go RoundTrippers](https://github.com/kubernetes/client-go/blob/master/transport/round_trippers.go)
 
 ## Open Questions
 

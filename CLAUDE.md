@@ -712,6 +712,159 @@ security find-generic-password -s "stackit-cli" -a "access_token"
                └──────────┘
 ```
 
+## Token Refresh Best Practices
+
+### Critical Requirements for OAuth2 Token Refresh
+
+Based on research and the CLI's existing implementation, token refresh mechanisms must meet these requirements:
+
+#### 1. Per-Request Expiration Checks
+
+**Pattern:** Check token expiration on **every HTTP request**, not just at initialization.
+
+```go
+func (utf *userTokenFlow) RoundTrip(req *http.Request) (*http.Response, error) {
+    // ALWAYS check expiration before each request
+    if TokenExpired(utf.accessToken) {
+        err := refreshTokens(utf)
+        if err != nil {
+            return nil, err
+        }
+    }
+    // ... execute request
+}
+```
+
+**Why:** Long-running operations (e.g., Terraform apply with many resources) can exceed token lifetimes. Tokens checked only at startup will fail mid-operation.
+
+#### 2. Proactive Refresh Window
+
+**Pattern:** Refresh tokens **before** they expire, not after.
+
+```go
+func tokenExpiresSoon(token string, buffer time.Duration) bool {
+    exp := parseTokenExpiration(token)
+    // Check if token expires within buffer window
+    return time.Now().Add(buffer).After(exp)
+}
+
+// Usage: Check if token expires within 5 seconds
+if tokenExpiresSoon(accessToken, 5*time.Second) {
+    refreshTokens()
+}
+```
+
+**Why:** Prevents timing issues with upstream systems. STACKIT SDK refreshes 5 seconds before expiration for this reason.
+
+#### 3. Token Rotation - Both Tokens Update
+
+**Critical:** OAuth2 refresh responses include **both** a new access token AND a new refresh token.
+
+```go
+type RefreshResponse struct {
+    AccessToken  string `json:"access_token"`
+    RefreshToken string `json:"refresh_token"`  // Not just access token!
+}
+
+// MUST update both in storage
+SetAuthFieldMap(map[authFieldKey]string{
+    ACCESS_TOKEN:  newAccessToken,
+    REFRESH_TOKEN: newRefreshToken,  // Both tokens rotate
+})
+```
+
+**Why:** Refresh tokens are single-use or have limited reuse. Using the old refresh token after rotation may fail.
+
+#### 4. Write-Back to Storage (Bidirectional Sync)
+
+**Critical:** When tokens are refreshed in memory, they **MUST** be written back to storage.
+
+```go
+func refreshTokens(utf *userTokenFlow) error {
+    // 1. Call IDP to refresh
+    newAccess, newRefresh := callTokenEndpoint(utf.refreshToken)
+
+    // 2. Write BACK to storage (keyring/file)
+    SetAuthField(ACCESS_TOKEN, newAccess)
+    SetAuthField(REFRESH_TOKEN, newRefresh)
+
+    // 3. Update in-memory values
+    utf.accessToken = newAccess
+    utf.refreshToken = newRefresh
+}
+```
+
+**Why:**
+- Multiple processes may use the same credentials (CLI + Terraform)
+- Concurrent operations must see consistent token state
+- Prevents multiple simultaneous refresh attempts
+- Enables bidirectional sync: CLI can use tokens refreshed by Terraform and vice versa
+
+#### 5. Thread Safety with Mutex
+
+**Pattern:** Protect token refresh operations with `sync.Mutex`.
+
+```go
+type userTokenFlow struct {
+    mu            sync.Mutex  // Protects token fields
+    accessToken   string
+    refreshToken  string
+}
+
+func (utf *userTokenFlow) RoundTrip(req *http.Request) (*http.Response, error) {
+    utf.mu.Lock()
+    defer utf.mu.Unlock()
+
+    // Safe to check and refresh tokens
+    if TokenExpired(utf.accessToken) {
+        refreshTokens(utf)
+    }
+    // ... execute request
+}
+```
+
+**Why:** `http.RoundTripper` may be called concurrently. Without mutex:
+- Race conditions on token variables
+- Multiple simultaneous refresh requests
+- Corrupted token state
+
+#### 6. Token Expiration Parsing
+
+**Pattern:** Use JWT parsing to check expiration without verifying signature.
+
+```go
+func TokenExpired(token string) (bool, error) {
+    // ParseUnverified is safe for expiration checks
+    // We're not authenticating, just reading the expiration claim
+    parsedToken, _, err := jwt.NewParser().ParseUnverified(token, &jwt.RegisteredClaims{})
+    if err != nil {
+        return false, fmt.Errorf("parse access token: %w", err)
+    }
+
+    exp, err := parsedToken.Claims.GetExpirationTime()
+    if err != nil || exp == nil {
+        return false, nil
+    }
+
+    return time.Now().After(exp.Time), nil
+}
+```
+
+**Why:** Access tokens are JWTs. No need to verify signature just to check expiration time.
+
+### Implementation Reference
+
+The CLI's `internal/pkg/auth/user_token_flow.go` demonstrates all these patterns correctly:
+
+1. ✅ Per-request expiration check in `RoundTrip()`
+2. ✅ Token rotation in `refreshTokens()` - both tokens update
+3. ✅ Write-back to storage via `SetAuthFieldMap()`
+4. ✅ JWT parsing in `TokenExpired()`
+5. ⚠️  Missing: Explicit mutex (single-threaded CLI context)
+6. ⚠️  Missing: Proactive refresh window (checks if already expired)
+
+When implementing provider auth for Terraform/SDK, **add** the missing mutex and proactive refresh window.
+
 ## Recent Updates
 
 **Last Updated:** 2025-11-25
@@ -720,6 +873,8 @@ security find-generic-password -s "stackit-cli" -a "access_token"
 - Planning for provider auth feature
 - Proposed refactoring of storage layer to support multiple contexts
 - Proposed new command group `stackit auth provider`
+- Research into Terraform provider authentication patterns
+- Documented critical token refresh requirements
 
 ---
 
