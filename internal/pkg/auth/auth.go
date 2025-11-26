@@ -25,7 +25,7 @@ type tokenClaims struct {
 //
 // If the user was logged in and the user session expired, reauthorizeUserRoutine is called to reauthenticate the user again.
 // If the environment variable STACKIT_ACCESS_TOKEN is set this token is used instead.
-func AuthenticationConfig(p *print.Printer, reauthorizeUserRoutine func(p *print.Printer, _ bool) error) (authCfgOption sdkConfig.ConfigurationOption, err error) {
+func AuthenticationConfig(p *print.Printer, reauthorizeUserRoutine func(p *print.Printer, context StorageContext, _ bool) error) (authCfgOption sdkConfig.ConfigurationOption, err error) {
 	// Get access token from env and use this if present
 	accessToken := os.Getenv(envAccessTokenName)
 	if accessToken != "" {
@@ -70,7 +70,7 @@ func AuthenticationConfig(p *print.Printer, reauthorizeUserRoutine func(p *print
 	case AUTH_FLOW_USER_TOKEN:
 		p.Debug(print.DebugLevel, "authenticating using user token")
 		if userSessionExpired {
-			err = reauthorizeUserRoutine(p, true)
+			err = reauthorizeUserRoutine(p, StorageContextCLI, true)
 			if err != nil {
 				return nil, fmt.Errorf("user login: %w", err)
 			}
@@ -84,7 +84,11 @@ func AuthenticationConfig(p *print.Printer, reauthorizeUserRoutine func(p *print
 }
 
 func UserSessionExpired() (bool, error) {
-	sessionExpiresAtString, err := GetAuthField(SESSION_EXPIRES_AT_UNIX)
+	return UserSessionExpiredWithContext(StorageContextCLI)
+}
+
+func UserSessionExpiredWithContext(context StorageContext) (bool, error) {
+	sessionExpiresAtString, err := GetAuthFieldWithContext(context, SESSION_EXPIRES_AT_UNIX)
 	if err != nil {
 		return false, fmt.Errorf("get %s: %w", SESSION_EXPIRES_AT_UNIX, err)
 	}
@@ -98,7 +102,11 @@ func UserSessionExpired() (bool, error) {
 }
 
 func GetAccessToken() (string, error) {
-	accessToken, err := GetAuthField(ACCESS_TOKEN)
+	return GetAccessTokenWithContext(StorageContextCLI)
+}
+
+func GetAccessTokenWithContext(context StorageContext) (string, error) {
+	accessToken, err := GetAuthFieldWithContext(context, ACCESS_TOKEN)
 	if err != nil {
 		return "", fmt.Errorf("get %s: %w", ACCESS_TOKEN, err)
 	}
@@ -138,14 +146,21 @@ func getEmailFromToken(token string) (string, error) {
 // For user token flows, it refreshes the token if necessary.
 // For service account flows, it returns the current access token.
 func GetValidAccessToken(p *print.Printer) (string, error) {
-	flow, err := GetAuthFlow()
+	return GetValidAccessTokenWithContext(p, StorageContextCLI)
+}
+
+// GetValidAccessTokenWithContext returns a valid access token for the specified storage context.
+// For user token flows, it refreshes the token if necessary.
+// For service account flows, it returns the current access token.
+func GetValidAccessTokenWithContext(p *print.Printer, context StorageContext) (string, error) {
+	flow, err := GetAuthFlowWithContext(context)
 	if err != nil {
 		return "", fmt.Errorf("get authentication flow: %w", err)
 	}
 
 	// For service account flows, just return the current token
 	if flow == AUTH_FLOW_SERVICE_ACCOUNT_TOKEN || flow == AUTH_FLOW_SERVICE_ACCOUNT_KEY {
-		return GetAccessToken()
+		return GetAccessTokenWithContext(context)
 	}
 
 	if flow != AUTH_FLOW_USER_TOKEN {
@@ -158,7 +173,7 @@ func GetValidAccessToken(p *print.Printer) (string, error) {
 		REFRESH_TOKEN:      "",
 		IDP_TOKEN_ENDPOINT: "",
 	}
-	err = GetAuthFieldMap(authFields)
+	err = GetAuthFieldMapWithContext(context, authFields)
 	if err != nil {
 		return "", fmt.Errorf("get tokens from auth storage: %w", err)
 	}
@@ -193,6 +208,7 @@ func GetValidAccessToken(p *print.Printer) (string, error) {
 	utf := &userTokenFlow{
 		printer:       p,
 		client:        &http.Client{},
+		context:       context,
 		authFlow:      flow,
 		accessToken:   accessToken,
 		refreshToken:  refreshToken,

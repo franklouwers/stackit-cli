@@ -93,7 +93,7 @@ func TestParseWellKnownConfig(t *testing.T) {
 				tt.getResponse,
 			}
 
-			got, err := parseWellKnownConfiguration(&testClient, "")
+			got, err := parseWellKnownConfiguration(&testClient, "", StorageContextCLI)
 
 			if tt.isValid && err != nil {
 				t.Fatalf("expected no error, got %v", err)
