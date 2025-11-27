@@ -44,6 +44,9 @@ func UserTokenFlowWithContext(p *print.Printer, context StorageContext) *userTok
 }
 
 func (utf *userTokenFlow) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Set the storage printer so debug messages use the correct verbosity
+	SetStoragePrinter(utf.printer)
+
 	err := loadVarsFromStorage(utf)
 	if err != nil {
 		return nil, err
@@ -142,6 +145,9 @@ func refreshTokens(utf *userTokenFlow) (err error) {
 		return fmt.Errorf("build request: %w", err)
 	}
 
+	// Debug log the request
+	debugHTTPRequest(utf.printer, req)
+
 	resp, err := utf.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("call API: %w", err)
@@ -153,13 +159,24 @@ func refreshTokens(utf *userTokenFlow) (err error) {
 		}
 	}()
 
+	// Debug log the response
+	debugHTTPResponse(utf.printer, resp)
+
 	accessToken, refreshToken, err := parseRefreshTokensResponse(resp)
 	if err != nil {
 		return fmt.Errorf("parse API response: %w", err)
 	}
+
+	// Get the new access token's expiration time
+	expiresAtUnix, err := getAccessTokenExpiresAtUnix(accessToken)
+	if err != nil {
+		return fmt.Errorf("get access token expiration: %w", err)
+	}
+
 	err = SetAuthFieldMapWithContext(utf.context, map[authFieldKey]string{
-		ACCESS_TOKEN:  accessToken,
-		REFRESH_TOKEN: refreshToken,
+		ACCESS_TOKEN:            accessToken,
+		REFRESH_TOKEN:           refreshToken,
+		SESSION_EXPIRES_AT_UNIX: expiresAtUnix,
 	})
 	if err != nil {
 		return fmt.Errorf("set refreshed tokens in auth storage: %w", err)

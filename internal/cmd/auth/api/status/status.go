@@ -32,7 +32,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 		Example: examples.Build(
 			examples.NewExample(
 				`Show authentication status for the STACKIT Terraform Provider and SDK`,
-				"$ stackit auth provider status"),
+				"$ stackit auth api status"),
 		),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model, err := parseInput(params.Printer, cmd, args)
@@ -40,15 +40,18 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 				return err
 			}
 
-			flow, err := auth.GetAuthFlowWithContext(auth.StorageContextProvider)
-			if err != nil || flow == "" {
+			// Check if access token exists (primary credential check)
+			accessToken, err := auth.GetAuthFieldWithContext(auth.StorageContextAPI, auth.ACCESS_TOKEN)
+			if err != nil || accessToken == "" {
 				// Not authenticated
 				return outputStatus(params.Printer, model, statusOutput{
 					Authenticated: false,
 				})
 			}
 
-			email, err := auth.GetAuthFieldWithContext(auth.StorageContextProvider, auth.USER_EMAIL)
+			// Get optional fields for display
+			flow, _ := auth.GetAuthFlowWithContext(auth.StorageContextAPI)
+			email, err := auth.GetAuthFieldWithContext(auth.StorageContextAPI, auth.USER_EMAIL)
 			if err != nil {
 				email = ""
 			}
@@ -92,14 +95,14 @@ func outputStatus(p *print.Printer, model *inputModel, status statusOutput) erro
 		return nil
 	default:
 		if status.Authenticated {
-			p.Outputln("Provider Authentication Status: Authenticated")
+			p.Outputln("API Authentication Status: Authenticated")
 			if status.Email != "" {
 				p.Outputf("Email: %s\n", status.Email)
 			}
 			p.Outputf("Auth Flow: %s\n", status.AuthFlow)
 		} else {
-			p.Outputln("Provider Authentication Status: Not authenticated")
-			p.Outputln("\nTo authenticate, run: stackit auth provider login")
+			p.Outputln("API Authentication Status: Not authenticated")
+			p.Outputln("\nTo authenticate, run: stackit auth api login")
 		}
 		return nil
 	}

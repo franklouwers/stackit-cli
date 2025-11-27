@@ -35,7 +35,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 				return err
 			}
 
-			userSessionExpired, err := auth.UserSessionExpiredWithContext(auth.StorageContextProvider)
+			userSessionExpired, err := auth.UserSessionExpiredWithContext(auth.StorageContextAPI)
 			if err != nil {
 				return err
 			}
@@ -43,7 +43,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 				return &cliErr.SessionExpiredError{}
 			}
 
-			accessToken, err := auth.GetValidAccessTokenWithContext(params.Printer, auth.StorageContextProvider)
+			accessToken, err := auth.GetValidAccessTokenWithContext(params.Printer, auth.StorageContextAPI)
 			if err != nil {
 				params.Printer.Debug(print.ErrorLevel, "get valid access token: %v", err)
 				return &cliErr.SessionExpiredError{}

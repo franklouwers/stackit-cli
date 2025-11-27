@@ -22,7 +22,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 				"$ stackit auth provider logout"),
 		),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			err := auth.LogoutUserWithContext(auth.StorageContextProvider)
+			err := auth.LogoutUserWithContext(auth.StorageContextAPI)
 			if err != nil {
 				return fmt.Errorf("log out failed: %w", err)
 			}

@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -26,6 +28,9 @@ type tokenClaims struct {
 // If the user was logged in and the user session expired, reauthorizeUserRoutine is called to reauthenticate the user again.
 // If the environment variable STACKIT_ACCESS_TOKEN is set this token is used instead.
 func AuthenticationConfig(p *print.Printer, reauthorizeUserRoutine func(p *print.Printer, context StorageContext, _ bool) error) (authCfgOption sdkConfig.ConfigurationOption, err error) {
+	// Set the storage printer so debug messages use the correct verbosity
+	SetStoragePrinter(p)
+
 	// Get access token from env and use this if present
 	accessToken := os.Getenv(envAccessTokenName)
 	if accessToken != "" {
@@ -142,6 +147,25 @@ func getEmailFromToken(token string) (string, error) {
 	return claims.Email, nil
 }
 
+func getAccessTokenExpiresAtUnix(accessToken string) (string, error) {
+	// Parse the access token to get its expiration time
+	parsedAccessToken, _, err := jwt.NewParser().ParseUnverified(accessToken, &jwt.RegisteredClaims{})
+	if err != nil {
+		return "", fmt.Errorf("parse access token: %w", err)
+	}
+
+	claims, ok := parsedAccessToken.Claims.(*jwt.RegisteredClaims)
+	if !ok {
+		return "", fmt.Errorf("get claims from parsed token: unknown claims type")
+	}
+
+	if claims.ExpiresAt == nil {
+		return "", fmt.Errorf("access token has no expiration claim")
+	}
+
+	return strconv.FormatInt(claims.ExpiresAt.Unix(), 10), nil
+}
+
 // GetValidAccessToken returns a valid access token for the current authentication flow.
 // For user token flows, it refreshes the token if necessary.
 // For service account flows, it returns the current access token.
@@ -153,6 +177,9 @@ func GetValidAccessToken(p *print.Printer) (string, error) {
 // For user token flows, it refreshes the token if necessary.
 // For service account flows, it returns the current access token.
 func GetValidAccessTokenWithContext(p *print.Printer, context StorageContext) (string, error) {
+	// Set the storage printer so debug messages use the correct verbosity
+	SetStoragePrinter(p)
+
 	flow, err := GetAuthFlowWithContext(context)
 	if err != nil {
 		return "", fmt.Errorf("get authentication flow: %w", err)
@@ -223,4 +250,54 @@ func GetValidAccessTokenWithContext(p *print.Printer, context StorageContext) (s
 
 	// Return the new access token
 	return utf.accessToken, nil
+}
+
+// debugHTTPRequest logs the raw HTTP request details for debugging purposes
+func debugHTTPRequest(p *print.Printer, req *http.Request) {
+	if p == nil || req == nil {
+		return
+	}
+
+	p.Debug(print.DebugLevel, "=== HTTP REQUEST ===")
+	p.Debug(print.DebugLevel, "Method: %s", req.Method)
+	p.Debug(print.DebugLevel, "URL: %s", req.URL.String())
+	p.Debug(print.DebugLevel, "Headers:")
+	for name, values := range req.Header {
+		for _, value := range values {
+			p.Debug(print.DebugLevel, "  %s: %s", name, value)
+		}
+	}
+	p.Debug(print.DebugLevel, "===================")
+}
+
+// debugHTTPResponse logs the raw HTTP response details for debugging purposes
+func debugHTTPResponse(p *print.Printer, resp *http.Response) {
+	if p == nil || resp == nil {
+		return
+	}
+
+	p.Debug(print.DebugLevel, "=== HTTP RESPONSE ===")
+	p.Debug(print.DebugLevel, "Status: %s", resp.Status)
+	p.Debug(print.DebugLevel, "Status Code: %d", resp.StatusCode)
+	p.Debug(print.DebugLevel, "Headers:")
+	for name, values := range resp.Header {
+		for _, value := range values {
+			p.Debug(print.DebugLevel, "  %s: %s", name, value)
+		}
+	}
+
+	// Read and log body (need to restore it for later use)
+	if resp.Body != nil {
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			p.Debug(print.ErrorLevel, "Error reading response body: %v", err)
+		} else {
+			// Restore the body for later use
+			resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+			// Show raw body without sanitization
+			p.Debug(print.DebugLevel, "Body: %s", string(bodyBytes))
+		}
+	}
+	p.Debug(print.DebugLevel, "====================")
 }

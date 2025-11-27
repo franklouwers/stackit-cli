@@ -25,7 +25,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 				"$ stackit auth provider login"),
 		),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			err := auth.AuthorizeUser(params.Printer, auth.StorageContextProvider, false)
+			err := auth.AuthorizeUser(params.Printer, auth.StorageContextAPI, false)
 			if err != nil {
 				return fmt.Errorf("authorization failed: %w", err)
 			}

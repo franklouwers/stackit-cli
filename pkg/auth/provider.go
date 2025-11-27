@@ -35,8 +35,8 @@ import (
 //	    Transport: authFlow,
 //	}
 func ProviderAuthFlow(p *print.Printer) (http.RoundTripper, error) {
-	// Check if provider credentials exist
-	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextProvider)
+	// Check if API credentials exist
+	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextAPI)
 	if err != nil {
 		return nil, &NotAuthenticatedError{}
 	}
@@ -44,15 +44,15 @@ func ProviderAuthFlow(p *print.Printer) (http.RoundTripper, error) {
 		return nil, &NotAuthenticatedError{}
 	}
 
-	// Return the round tripper configured for provider context
-	return internalAuth.UserTokenFlowWithContext(p, internalAuth.StorageContextProvider), nil
+	// Return the round tripper configured for API context
+	return internalAuth.UserTokenFlowWithContext(p, internalAuth.StorageContextAPI), nil
 }
 
-// GetProviderAccessToken returns a valid access token for the provider context.
+// GetProviderAccessToken returns a valid access token for the API context.
 // It automatically refreshes the token if expired and writes the refreshed token
 // back to storage.
 //
-// Returns NotAuthenticatedError if no provider credentials are found.
+// Returns NotAuthenticatedError if no API credentials are found.
 //
 // Example usage:
 //
@@ -64,8 +64,8 @@ func ProviderAuthFlow(p *print.Printer) (http.RoundTripper, error) {
 //	    return fmt.Errorf("failed to get access token: %w", err)
 //	}
 func GetProviderAccessToken(p *print.Printer) (string, error) {
-	// Check if provider credentials exist
-	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextProvider)
+	// Check if API credentials exist
+	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextAPI)
 	if err != nil {
 		return "", &NotAuthenticatedError{}
 	}
@@ -74,7 +74,7 @@ func GetProviderAccessToken(p *print.Printer) (string, error) {
 	}
 
 	// Get valid access token (with automatic refresh)
-	token, err := internalAuth.GetValidAccessTokenWithContext(p, internalAuth.StorageContextProvider)
+	token, err := internalAuth.GetValidAccessTokenWithContext(p, internalAuth.StorageContextAPI)
 	if err != nil {
 		return "", err
 	}
@@ -82,10 +82,10 @@ func GetProviderAccessToken(p *print.Printer) (string, error) {
 	return token, nil
 }
 
-// IsProviderAuthenticated checks if provider credentials exist.
-// Returns true if the user has run `stackit auth provider login`.
+// IsProviderAuthenticated checks if API credentials exist.
+// Returns true if the user has run `stackit auth provider login` (or `stackit auth api login`).
 func IsProviderAuthenticated() bool {
-	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextProvider)
+	flow, err := internalAuth.GetAuthFlowWithContext(internalAuth.StorageContextAPI)
 	return err == nil && flow != ""
 }
 

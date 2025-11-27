@@ -10,9 +10,21 @@ import (
 
 	"github.com/stackitcloud/stackit-cli/internal/pkg/config"
 	pkgErrors "github.com/stackitcloud/stackit-cli/internal/pkg/errors"
+	"github.com/stackitcloud/stackit-cli/internal/pkg/print"
 
 	"github.com/zalando/go-keyring"
 )
+
+// Package-level printer for debug logging in storage operations
+var storagePrinter = print.NewPrinter()
+
+// SetStoragePrinter sets the printer used for storage debug logging
+// This should be called with the main command's printer to ensure consistent verbosity
+func SetStoragePrinter(p *print.Printer) {
+	if p != nil {
+		storagePrinter = p
+	}
+}
 
 // Name of an auth-related field
 type authFieldKey string
@@ -22,20 +34,20 @@ type AuthFlow string
 
 // StorageContext represents the context in which credentials are stored
 // CLI context is for the CLI's own authentication
-// Provider context is for Terraform Provider and SDK authentication
+// API context is for Terraform Provider and SDK authentication
 type StorageContext string
 
 const (
-	StorageContextCLI      StorageContext = "cli"
-	StorageContextProvider StorageContext = "provider"
+	StorageContextCLI StorageContext = "cli"
+	StorageContextAPI StorageContext = "api"
 )
 
 const (
-	keyringServiceCLI      = "stackit-cli"
-	keyringServiceProvider = "stackit-cli-provider"
-	textFileNameCLI        = "cli-auth-storage.txt"
-	textFileNameProvider   = "cli-provider-auth-storage.txt"
-	envAccessTokenName     = "STACKIT_ACCESS_TOKEN"
+	keyringServiceCLI = "stackit-cli"
+	keyringServiceAPI = "stackit-cli-api"
+	textFileNameCLI   = "cli-auth-storage.txt"
+	textFileNameAPI   = "cli-api-auth-storage.txt"
+	envAccessTokenName = "STACKIT_ACCESS_TOKEN"
 )
 
 // Legacy constants for backward compatibility
@@ -92,8 +104,8 @@ var loginAuthFieldKeys = []authFieldKey{
 func getKeyringServiceName(context StorageContext, profile string) string {
 	var baseService string
 	switch context {
-	case StorageContextProvider:
-		baseService = keyringServiceProvider
+	case StorageContextAPI:
+		baseService = keyringServiceAPI
 	default:
 		baseService = keyringServiceCLI
 	}
@@ -107,8 +119,8 @@ func getKeyringServiceName(context StorageContext, profile string) string {
 // getTextFileName returns the text file name for the given context
 func getTextFileName(context StorageContext) string {
 	switch context {
-	case StorageContextProvider:
-		return textFileNameProvider
+	case StorageContextAPI:
+		return textFileNameAPI
 	default:
 		return textFileNameCLI
 	}
@@ -269,13 +281,14 @@ func setAuthFieldInEncodedTextFile(activeProfile string, key authFieldKey, value
 }
 
 func setAuthFieldInEncodedTextFileWithContext(context StorageContext, activeProfile string, key authFieldKey, value string) error {
+	textFileDir := config.GetProfileFolderPath(activeProfile)
+	fileName := getTextFileName(context)
+	textFilePath := filepath.Join(textFileDir, fileName)
+
 	err := createEncodedTextFileWithContext(context, activeProfile)
 	if err != nil {
 		return err
 	}
-	textFileDir := config.GetProfileFolderPath(activeProfile)
-	fileName := getTextFileName(context)
-	textFilePath := filepath.Join(textFileDir, fileName)
 
 	contentEncoded, err := os.ReadFile(textFilePath)
 	if err != nil {
