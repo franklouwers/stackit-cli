@@ -43,10 +43,10 @@ const (
 )
 
 const (
-	keyringServiceCLI = "stackit-cli"
-	keyringServiceAPI = "stackit-cli-api"
-	textFileNameCLI   = "cli-auth-storage.txt"
-	textFileNameAPI   = "cli-api-auth-storage.txt"
+	keyringServiceCLI  = "stackit-cli"
+	keyringServiceAPI  = "stackit-cli-api"
+	textFileNameCLI    = "cli-auth-storage.txt"
+	textFileNameAPI    = "cli-api-auth-storage.txt"
 	envAccessTokenName = "STACKIT_ACCESS_TOKEN"
 )
 
