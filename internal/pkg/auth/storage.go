@@ -16,7 +16,7 @@ import (
 )
 
 // Package-level printer for debug logging in storage operations
-var storagePrinter = print.NewPrinter()
+var storagePrinter = print.NewPrinter() //nolint:unused // set via SetStoragePrinter, may be used for future debug logging
 
 // SetStoragePrinter sets the printer used for storage debug logging
 // This should be called with the main command's printer to ensure consistent verbosity
@@ -50,12 +50,6 @@ const (
 	envAccessTokenName = "STACKIT_ACCESS_TOKEN"
 )
 
-// Legacy constants for backward compatibility
-const (
-	keyringService = keyringServiceCLI
-	textFileName   = textFileNameCLI
-)
-
 const (
 	SESSION_EXPIRES_AT_UNIX authFieldKey = "session_expires_at_unix"
 	ACCESS_TOKEN            authFieldKey = "access_token"
@@ -63,7 +57,7 @@ const (
 	SERVICE_ACCOUNT_TOKEN   authFieldKey = "service_account_token"
 	SERVICE_ACCOUNT_EMAIL   authFieldKey = "service_account_email"
 	USER_EMAIL              authFieldKey = "user_email"
-	SERVICE_ACCOUNT_KEY     authFieldKey = "service_account_key"
+	SERVICE_ACCOUNT_KEY     authFieldKey = "service_account_key" //nolint:gosec // linter false positive
 	PRIVATE_KEY             authFieldKey = "private_key"
 	TOKEN_CUSTOM_ENDPOINT   authFieldKey = "token_custom_endpoint"
 	IDP_TOKEN_ENDPOINT      authFieldKey = "idp_token_endpoint" //nolint:gosec // linter false positive
@@ -416,13 +410,9 @@ func getAuthFieldFromEncodedTextFileWithContext(context StorageContext, activePr
 	return value, nil
 }
 
-// Checks if the encoded text file exist.
+// createEncodedTextFileWithContext checks if the encoded text file exist.
 // If it doesn't, creates it with the content "{}" encoded.
 // If it does, does nothing (and returns nil).
-func createEncodedTextFile(activeProfile string) error {
-	return createEncodedTextFileWithContext(StorageContextCLI, activeProfile)
-}
-
 func createEncodedTextFileWithContext(context StorageContext, activeProfile string) error {
 	textFileDir := config.GetProfileFolderPath(activeProfile)
 	fileName := getTextFileName(context)

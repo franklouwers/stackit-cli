@@ -1755,7 +1755,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 
 	cliEmail := "cli@example.com"
 	cliAccessToken := "cli-access-token"
-	cliRefreshToken := "cli-refresh-token"
+	cliRefreshToken := "cli-refresh-token" //nolint:gosec // test credential, not a real secret
 	cliSessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
 
 	providerEmail := "provider@example.com"
