@@ -1134,7 +1134,7 @@ func TestStorageContextSeparation(t *testing.T) {
 			}
 
 			// Set value in Provider context
-			err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+			err = SetAuthFieldWithContext(StorageContextAPI, testField, testValueProvider)
 			if err != nil {
 				t.Fatalf("Failed to set Provider context field: %v", err)
 			}
@@ -1149,7 +1149,7 @@ func TestStorageContextSeparation(t *testing.T) {
 			}
 
 			// Verify Provider context value
-			valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+			valueProvider, err := GetAuthFieldWithContext(StorageContextAPI, testField)
 			if err != nil {
 				t.Fatalf("Failed to get Provider context field: %v", err)
 			}
@@ -1161,10 +1161,10 @@ func TestStorageContextSeparation(t *testing.T) {
 			activeProfile, _ := config.GetProfile()
 			if !tt.keyringFails {
 				_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, testField)
-				_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+				_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, testField)
 			} else {
 				_ = deleteAuthFieldInEncodedTextFileWithContext(StorageContextCLI, activeProfile, testField)
-				_ = deleteAuthFieldInEncodedTextFileWithContext(StorageContextProvider, activeProfile, testField)
+				_ = deleteAuthFieldInEncodedTextFileWithContext(StorageContextAPI, activeProfile, testField)
 			}
 		})
 	}
@@ -1185,7 +1185,7 @@ func TestStorageContextIsolation(t *testing.T) {
 		t.Fatalf("Failed to set CLI context field: %v", err)
 	}
 
-	err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+	err = SetAuthFieldWithContext(StorageContextAPI, testField, testValueProvider)
 	if err != nil {
 		t.Fatalf("Failed to set Provider context field: %v", err)
 	}
@@ -1206,7 +1206,7 @@ func TestStorageContextIsolation(t *testing.T) {
 	}
 
 	// Verify Provider context was NOT affected
-	valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+	valueProvider, err := GetAuthFieldWithContext(StorageContextAPI, testField)
 	if err != nil {
 		t.Fatalf("Failed to get Provider context field: %v", err)
 	}
@@ -1217,7 +1217,7 @@ func TestStorageContextIsolation(t *testing.T) {
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
 	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, testField)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, testField)
 }
 
 // TestStorageContextDeletion tests that deleting from one context doesn't affect the other
@@ -1234,7 +1234,7 @@ func TestStorageContextDeletion(t *testing.T) {
 		t.Fatalf("Failed to set CLI context field: %v", err)
 	}
 
-	err = SetAuthFieldWithContext(StorageContextProvider, testField, testValueProvider)
+	err = SetAuthFieldWithContext(StorageContextAPI, testField, testValueProvider)
 	if err != nil {
 		t.Fatalf("Failed to set Provider context field: %v", err)
 	}
@@ -1252,7 +1252,7 @@ func TestStorageContextDeletion(t *testing.T) {
 	}
 
 	// Verify Provider context field still exists
-	valueProvider, err := GetAuthFieldWithContext(StorageContextProvider, testField)
+	valueProvider, err := GetAuthFieldWithContext(StorageContextAPI, testField)
 	if err != nil {
 		t.Errorf("Provider context field was deleted unexpectedly: %v", err)
 	}
@@ -1262,7 +1262,7 @@ func TestStorageContextDeletion(t *testing.T) {
 
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, testField)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, testField)
 }
 
 // TestStorageContextWithProfiles tests context separation with custom profiles
@@ -1287,7 +1287,7 @@ func TestStorageContextWithProfiles(t *testing.T) {
 		t.Fatalf("Failed to set CLI context field for profile: %v", err)
 	}
 
-	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, testField, testValueProvider)
+	err = setAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, testField, testValueProvider)
 	if err != nil {
 		t.Fatalf("Failed to set Provider context field for profile: %v", err)
 	}
@@ -1301,7 +1301,7 @@ func TestStorageContextWithProfiles(t *testing.T) {
 		t.Errorf("CLI context value incorrect: expected %s, got %s", testValueCLI, valueCLI)
 	}
 
-	valueProvider, err := getAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, testField)
+	valueProvider, err := getAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, testField)
 	if err != nil {
 		t.Fatalf("Failed to get Provider context field for profile: %v", err)
 	}
@@ -1311,7 +1311,7 @@ func TestStorageContextWithProfiles(t *testing.T) {
 
 	// Cleanup
 	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, testProfile, testField)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, testField)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, testProfile, testField)
 	_ = deleteProfileFiles(testProfile)
 }
 
@@ -1336,7 +1336,7 @@ func TestLoginLogoutWithContext(t *testing.T) {
 	}
 
 	// Login to Provider context
-	err = LoginUserWithContext(StorageContextProvider, emailProvider, accessTokenProvider, refreshTokenProvider, sessionExpiresProvider)
+	err = LoginUserWithContext(StorageContextAPI, emailProvider, accessTokenProvider, refreshTokenProvider, sessionExpiresProvider)
 	if err != nil {
 		t.Fatalf("Failed to login to Provider context: %v", err)
 	}
@@ -1359,7 +1359,7 @@ func TestLoginLogoutWithContext(t *testing.T) {
 	}
 
 	// Verify Provider context credentials
-	providerEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	providerEmail, err := GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Failed to get Provider email: %v", err)
 	}
@@ -1367,7 +1367,7 @@ func TestLoginLogoutWithContext(t *testing.T) {
 		t.Errorf("Provider email incorrect: expected %s, got %s", emailProvider, providerEmail)
 	}
 
-	providerAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	providerAccessToken, err := GetAuthFieldWithContext(StorageContextAPI, ACCESS_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to get Provider access token: %v", err)
 	}
@@ -1388,7 +1388,7 @@ func TestLoginLogoutWithContext(t *testing.T) {
 	}
 
 	// Verify Provider context still has credentials
-	providerEmailAfter, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	providerEmailAfter, err := GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Provider context lost credentials after CLI logout: %v", err)
 	}
@@ -1397,7 +1397,7 @@ func TestLoginLogoutWithContext(t *testing.T) {
 	}
 
 	// Cleanup Provider context
-	err = LogoutUserWithContext(StorageContextProvider)
+	err = LogoutUserWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to logout from Provider context: %v", err)
 	}
@@ -1413,7 +1413,7 @@ func TestAuthFlowWithContext(t *testing.T) {
 		t.Fatalf("Failed to set CLI auth flow: %v", err)
 	}
 
-	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_SERVICE_ACCOUNT_KEY)
+	err = SetAuthFlowWithContext(StorageContextAPI, AUTH_FLOW_SERVICE_ACCOUNT_KEY)
 	if err != nil {
 		t.Fatalf("Failed to set Provider auth flow: %v", err)
 	}
@@ -1428,7 +1428,7 @@ func TestAuthFlowWithContext(t *testing.T) {
 	}
 
 	// Verify Provider context auth flow
-	providerFlow, err := GetAuthFlowWithContext(StorageContextProvider)
+	providerFlow, err := GetAuthFlowWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to get Provider auth flow: %v", err)
 	}
@@ -1439,7 +1439,7 @@ func TestAuthFlowWithContext(t *testing.T) {
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
 	_ = deleteAuthFieldInKeyringWithContext(StorageContextCLI, activeProfile, authFlowType)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, authFlowType)
 }
 
 // TestGetKeyringServiceName tests the keyring service name generation
@@ -1464,15 +1464,15 @@ func TestGetKeyringServiceName(t *testing.T) {
 		},
 		{
 			description:     "Provider context, default profile",
-			context:         StorageContextProvider,
+			context:         StorageContextAPI,
 			profile:         config.DefaultProfileName,
-			expectedService: "stackit-cli-provider",
+			expectedService: "stackit-cli-api",
 		},
 		{
 			description:     "Provider context, custom profile",
-			context:         StorageContextProvider,
+			context:         StorageContextAPI,
 			profile:         "my-profile",
-			expectedService: "stackit-cli-provider/my-profile",
+			expectedService: "stackit-cli-api/my-profile",
 		},
 	}
 
@@ -1500,8 +1500,8 @@ func TestGetTextFileName(t *testing.T) {
 		},
 		{
 			description:  "Provider context",
-			context:      StorageContextProvider,
-			expectedName: "cli-provider-auth-storage.txt",
+			context:      StorageContextAPI,
+			expectedName: "cli-api-auth-storage.txt",
 		},
 	}
 
@@ -1526,7 +1526,7 @@ func TestAuthFieldMapWithContext(t *testing.T) {
 	keyring.MockInit()
 
 	// Set fields in Provider context
-	err := SetAuthFieldMapWithContext(StorageContextProvider, testFields)
+	err := SetAuthFieldMapWithContext(StorageContextAPI, testFields)
 	if err != nil {
 		t.Fatalf("Failed to set field map in Provider context: %v", err)
 	}
@@ -1536,7 +1536,7 @@ func TestAuthFieldMapWithContext(t *testing.T) {
 	for key := range testFields {
 		readFields[key] = ""
 	}
-	err = GetAuthFieldMapWithContext(StorageContextProvider, readFields)
+	err = GetAuthFieldMapWithContext(StorageContextAPI, readFields)
 	if err != nil {
 		t.Fatalf("Failed to get field map from Provider context: %v", err)
 	}
@@ -1559,7 +1559,7 @@ func TestAuthFieldMapWithContext(t *testing.T) {
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
 	for key := range testFields {
-		_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, key)
+		_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, key)
 	}
 }
 
@@ -1689,13 +1689,13 @@ func TestProviderAuthWorkflow(t *testing.T) {
 	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
 
 	// Login to provider context
-	err := LoginUserWithContext(StorageContextProvider, email, accessToken, refreshToken, sessionExpires)
+	err := LoginUserWithContext(StorageContextAPI, email, accessToken, refreshToken, sessionExpires)
 	if err != nil {
 		t.Fatalf("Failed to login to provider context: %v", err)
 	}
 
 	// Verify provider credentials exist
-	providerEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	providerEmail, err := GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Failed to get provider email: %v", err)
 	}
@@ -1703,7 +1703,7 @@ func TestProviderAuthWorkflow(t *testing.T) {
 		t.Errorf("Provider email incorrect: expected %s, got %s", email, providerEmail)
 	}
 
-	providerAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	providerAccessToken, err := GetAuthFieldWithContext(StorageContextAPI, ACCESS_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to get provider access token: %v", err)
 	}
@@ -1718,13 +1718,13 @@ func TestProviderAuthWorkflow(t *testing.T) {
 	}
 
 	// Set auth flow
-	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_USER_TOKEN)
+	err = SetAuthFlowWithContext(StorageContextAPI, AUTH_FLOW_USER_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to set provider auth flow: %v", err)
 	}
 
 	// Verify auth flow
-	providerFlow, err := GetAuthFlowWithContext(StorageContextProvider)
+	providerFlow, err := GetAuthFlowWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to get provider auth flow: %v", err)
 	}
@@ -1733,20 +1733,20 @@ func TestProviderAuthWorkflow(t *testing.T) {
 	}
 
 	// Logout from provider context
-	err = LogoutUserWithContext(StorageContextProvider)
+	err = LogoutUserWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to logout from provider context: %v", err)
 	}
 
 	// Verify provider credentials are deleted
-	_, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	_, err = GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err == nil {
 		t.Errorf("Provider credentials still exist after logout")
 	}
 
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, authFlowType)
 }
 
 // TestConcurrentCLIAndProviderAuth tests that CLI and Provider can be authenticated simultaneously
@@ -1769,7 +1769,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 		t.Fatalf("Failed to login to CLI context: %v", err)
 	}
 
-	err = LoginUserWithContext(StorageContextProvider, providerEmail, providerAccessToken, providerRefreshToken, providerSessionExpires)
+	err = LoginUserWithContext(StorageContextAPI, providerEmail, providerAccessToken, providerRefreshToken, providerSessionExpires)
 	if err != nil {
 		t.Fatalf("Failed to login to Provider context: %v", err)
 	}
@@ -1792,7 +1792,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 	}
 
 	// Verify Provider credentials
-	gotProviderEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	gotProviderEmail, err := GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Failed to get Provider email: %v", err)
 	}
@@ -1800,7 +1800,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 		t.Errorf("Provider email incorrect: expected %s, got %s", providerEmail, gotProviderEmail)
 	}
 
-	gotProviderAccessToken, err := GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	gotProviderAccessToken, err := GetAuthFieldWithContext(StorageContextAPI, ACCESS_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to get Provider access token: %v", err)
 	}
@@ -1825,7 +1825,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 	}
 
 	// Verify Provider token unchanged
-	gotProviderAccessToken, err = GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	gotProviderAccessToken, err = GetAuthFieldWithContext(StorageContextAPI, ACCESS_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to get Provider access token after CLI update: %v", err)
 	}
@@ -1846,7 +1846,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 	}
 
 	// Verify Provider credentials still exist
-	gotProviderEmail, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	gotProviderEmail, err = GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Provider credentials deleted after CLI logout: %v", err)
 	}
@@ -1855,7 +1855,7 @@ func TestConcurrentCLIAndProviderAuth(t *testing.T) {
 	}
 
 	// Cleanup
-	err = LogoutUserWithContext(StorageContextProvider)
+	err = LogoutUserWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to logout from provider context: %v", err)
 	}
@@ -1866,7 +1866,7 @@ func TestProviderStatusReporting(t *testing.T) {
 	keyring.MockInit()
 
 	// Initially not authenticated
-	flow, err := GetAuthFlowWithContext(StorageContextProvider)
+	flow, err := GetAuthFlowWithContext(StorageContextAPI)
 	if err == nil && flow != "" {
 		t.Errorf("Provider should not be authenticated initially, but has flow: %s", flow)
 	}
@@ -1877,18 +1877,18 @@ func TestProviderStatusReporting(t *testing.T) {
 	refreshToken := "provider-refresh-token"
 	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
 
-	err = LoginUserWithContext(StorageContextProvider, email, accessToken, refreshToken, sessionExpires)
+	err = LoginUserWithContext(StorageContextAPI, email, accessToken, refreshToken, sessionExpires)
 	if err != nil {
 		t.Fatalf("Failed to login: %v", err)
 	}
 
-	err = SetAuthFlowWithContext(StorageContextProvider, AUTH_FLOW_USER_TOKEN)
+	err = SetAuthFlowWithContext(StorageContextAPI, AUTH_FLOW_USER_TOKEN)
 	if err != nil {
 		t.Fatalf("Failed to set auth flow: %v", err)
 	}
 
 	// Verify authenticated status
-	flow, err = GetAuthFlowWithContext(StorageContextProvider)
+	flow, err = GetAuthFlowWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to get auth flow: %v", err)
 	}
@@ -1896,7 +1896,7 @@ func TestProviderStatusReporting(t *testing.T) {
 		t.Errorf("Auth flow incorrect: expected %s, got %s", AUTH_FLOW_USER_TOKEN, flow)
 	}
 
-	gotEmail, err := GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	gotEmail, err := GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Failed to get email: %v", err)
 	}
@@ -1905,25 +1905,25 @@ func TestProviderStatusReporting(t *testing.T) {
 	}
 
 	// Logout
-	err = LogoutUserWithContext(StorageContextProvider)
+	err = LogoutUserWithContext(StorageContextAPI)
 	if err != nil {
 		t.Fatalf("Failed to logout: %v", err)
 	}
 
 	// Verify credentials are deleted after logout
-	_, err = GetAuthFieldWithContext(StorageContextProvider, USER_EMAIL)
+	_, err = GetAuthFieldWithContext(StorageContextAPI, USER_EMAIL)
 	if err == nil {
 		t.Errorf("User email should not exist after logout")
 	}
 
-	_, err = GetAuthFieldWithContext(StorageContextProvider, ACCESS_TOKEN)
+	_, err = GetAuthFieldWithContext(StorageContextAPI, ACCESS_TOKEN)
 	if err == nil {
 		t.Errorf("Access token should not exist after logout")
 	}
 
 	// Cleanup
 	activeProfile, _ := config.GetProfile()
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, activeProfile, authFlowType)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, activeProfile, authFlowType)
 }
 
 // TestProviderAuthWithProfiles tests provider authentication with custom profiles
@@ -1942,28 +1942,28 @@ func TestProviderAuthWithProfiles(t *testing.T) {
 	sessionExpires := fmt.Sprintf("%d", time.Now().Add(2*time.Hour).Unix())
 
 	// Login to provider context with custom profile
-	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, USER_EMAIL, email)
+	err = setAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, USER_EMAIL, email)
 	if err != nil {
 		t.Fatalf("Failed to set provider email for profile: %v", err)
 	}
 
-	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, ACCESS_TOKEN, accessToken)
+	err = setAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, ACCESS_TOKEN, accessToken)
 	if err != nil {
 		t.Fatalf("Failed to set provider access token for profile: %v", err)
 	}
 
-	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, REFRESH_TOKEN, refreshToken)
+	err = setAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, REFRESH_TOKEN, refreshToken)
 	if err != nil {
 		t.Fatalf("Failed to set provider refresh token for profile: %v", err)
 	}
 
-	err = setAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, SESSION_EXPIRES_AT_UNIX, sessionExpires)
+	err = setAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, SESSION_EXPIRES_AT_UNIX, sessionExpires)
 	if err != nil {
 		t.Fatalf("Failed to set provider session expiry for profile: %v", err)
 	}
 
 	// Verify provider credentials for custom profile
-	gotEmail, err := getAuthFieldWithProfileAndContext(StorageContextProvider, testProfile, USER_EMAIL)
+	gotEmail, err := getAuthFieldWithProfileAndContext(StorageContextAPI, testProfile, USER_EMAIL)
 	if err != nil {
 		t.Fatalf("Failed to get provider email for profile: %v", err)
 	}
@@ -1978,9 +1978,9 @@ func TestProviderAuthWithProfiles(t *testing.T) {
 	}
 
 	// Cleanup
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, USER_EMAIL)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, ACCESS_TOKEN)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, REFRESH_TOKEN)
-	_ = deleteAuthFieldInKeyringWithContext(StorageContextProvider, testProfile, SESSION_EXPIRES_AT_UNIX)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, testProfile, USER_EMAIL)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, testProfile, ACCESS_TOKEN)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, testProfile, REFRESH_TOKEN)
+	_ = deleteAuthFieldInKeyringWithContext(StorageContextAPI, testProfile, SESSION_EXPIRES_AT_UNIX)
 	_ = deleteProfileFiles(testProfile)
 }
