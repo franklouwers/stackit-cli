@@ -27,7 +27,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 		Example: examples.Build(
 			examples.NewExample(
 				`Print a short-lived access token for the STACKIT Terraform Provider and SDK`,
-				"$ stackit auth provider get-access-token"),
+				"$ stackit auth api get-access-token"),
 		),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model, err := parseInput(params.Printer, cmd, args)

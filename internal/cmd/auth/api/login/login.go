@@ -22,7 +22,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 		Example: examples.Build(
 			examples.NewExample(
 				`Login for the STACKIT Terraform Provider and SDK. This command will open a browser window where you can login to your STACKIT account`,
-				"$ stackit auth provider login"),
+				"$ stackit auth api login"),
 		),
 		RunE: func(_ *cobra.Command, _ []string) error {
 			err := auth.AuthorizeUser(params.Printer, auth.StorageContextAPI, false)

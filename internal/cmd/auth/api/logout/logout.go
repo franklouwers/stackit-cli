@@ -19,7 +19,7 @@ func NewCmd(params *params.CmdParams) *cobra.Command {
 		Example: examples.Build(
 			examples.NewExample(
 				`Log out from the STACKIT Terraform Provider and SDK`,
-				"$ stackit auth provider logout"),
+				"$ stackit auth api logout"),
 		),
 		RunE: func(_ *cobra.Command, _ []string) error {
 			err := auth.LogoutUserWithContext(auth.StorageContextAPI)
